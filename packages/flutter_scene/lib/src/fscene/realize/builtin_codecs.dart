@@ -21,6 +21,7 @@ import 'package:flutter_scene/src/components/mesh_component.dart';
 import 'package:flutter_scene/src/fscene/realize/node_identity.dart';
 import 'package:flutter_scene/src/components/point_light_component.dart';
 import 'package:flutter_scene/src/components/rect_area_light_component.dart';
+import 'package:flutter_scene/src/components/reflection_probe_component.dart';
 import 'package:flutter_scene/src/components/spot_light_component.dart';
 import 'package:flutter_scene/src/environment_settings.dart';
 import 'package:scene/scene.dart';
@@ -48,6 +49,7 @@ void registerBuiltinComponentCodecs(FsceneComponentRegistry registry) {
     ..register(DirectionalLightCodec())
     ..register(PointLightCodec())
     ..register(RectAreaLightCodec())
+    ..register(ReflectionProbeCodec())
     ..register(SpotLightCodec())
     ..register(CameraCodec())
     ..register(EnvironmentVolumeCodec())
@@ -1439,6 +1441,95 @@ class MaterialsVariantsCodec extends ComponentCodec {
       for (final entry in value.values)
         if (entry is StringValue) entry.value,
   ];
+}
+
+/// Codec for [ReflectionProbeComponent]. The captured environment is not
+/// persisted; a realized probe re-captures on activation.
+class ReflectionProbeCodec extends ComponentCodec {
+  @override
+  String get type => 'reflectionProbe';
+
+  static final List<ComponentPropertyDef> _schema = [
+    ComponentPropertyDef(
+      'extents',
+      ComponentPropertyKind.vec3,
+      Vec3Value(Vector3(5, 5, 5)),
+      doc: 'World-space half-size of the influence and parallax box.',
+      read: (c) => Vec3Value((c as ReflectionProbeComponent).extents.clone()),
+    ),
+    ComponentPropertyDef(
+      'blendDistance',
+      ComponentPropertyKind.number,
+      const DoubleValue(1.0),
+      doc: 'Fade band outside the box, in world units.',
+      min: 0,
+      read: (c) => DoubleValue((c as ReflectionProbeComponent).blendDistance),
+    ),
+    ComponentPropertyDef(
+      'priority',
+      ComponentPropertyKind.number,
+      const DoubleValue(10.0),
+      doc: 'Cross-fade order; higher applies on top.',
+      read: (c) => DoubleValue((c as ReflectionProbeComponent).priority),
+    ),
+    ComponentPropertyDef(
+      'weight',
+      ComponentPropertyKind.number,
+      const DoubleValue(1.0),
+      doc: 'Master contribution scale.',
+      min: 0,
+      max: 1,
+      read: (c) => DoubleValue((c as ReflectionProbeComponent).weight),
+    ),
+    ComponentPropertyDef(
+      'faceResolution',
+      ComponentPropertyKind.number,
+      const DoubleValue(128.0),
+      doc: 'Resolution of each captured cube face, in pixels.',
+      min: 16,
+      read: (c) => DoubleValue(
+        (c as ReflectionProbeComponent).faceResolution.toDouble(),
+      ),
+    ),
+    ComponentPropertyDef(
+      'captureOnActivate',
+      ComponentPropertyKind.boolean,
+      const BoolValue(true),
+      doc: 'Capture automatically before the first rendered frame.',
+      read: (c) => BoolValue((c as ReflectionProbeComponent).captureOnActivate),
+    ),
+  ];
+
+  @override
+  List<ComponentPropertyDef> get propertySchema => _schema;
+
+  @override
+  bool claims(Component component) => component is ReflectionProbeComponent;
+
+  @override
+  Component realize(ComponentSpec spec, RealizeContext context) {
+    final p = spec.properties;
+    return ReflectionProbeComponent(
+      extents: readVec3(p, 'extents', vec3Default('extents')),
+      blendDistance: readDouble(
+        p,
+        'blendDistance',
+        numberDefault('blendDistance'),
+      ),
+      priority: readDouble(p, 'priority', numberDefault('priority')),
+      weight: readDouble(p, 'weight', numberDefault('weight')),
+      faceResolution: readDouble(
+        p,
+        'faceResolution',
+        numberDefault('faceResolution'),
+      ).round(),
+      captureOnActivate: readBool(
+        p,
+        'captureOnActivate',
+        boolDefault('captureOnActivate'),
+      ),
+    );
+  }
 }
 
 /// Codec for [RectAreaLightComponent].
