@@ -123,6 +123,8 @@ export 'src/components/directional_light_component.dart'
     show DirectionalLightComponent;
 export 'src/components/environment_volume_component.dart'
     show EnvironmentVolumeComponent, EnvironmentVolumeShape;
+export 'src/components/reflection_probe_component.dart'
+    show ReflectionProbeComponent;
 export 'src/components/instanced_mesh_component.dart'
     show InstancedMeshComponent;
 export 'src/components/lod_component.dart' show LodComponent;
@@ -227,6 +229,7 @@ export 'src/post_process/post_process.dart'
         ChromaticAberrationSettings,
         ColorGradingSettings,
         FilmGrainSettings,
+        LensFlareSettings,
         PostProcessSettings,
         VignetteSettings;
 export 'src/render/env_prefilter.dart' show prefilterEquirectRadiance;

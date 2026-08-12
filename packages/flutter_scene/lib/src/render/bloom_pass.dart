@@ -44,6 +44,8 @@ class BloomPass extends RenderGraphPass {
       baseShaderLibrary['BloomDownsampleFragment']!;
   static final gpu.Shader _upsampleShader =
       baseShaderLibrary['BloomUpsampleFragment']!;
+  static final gpu.Shader _lensFlareShader =
+      baseShaderLibrary['LensFlareFragment']!;
 
   // Two triangles of NDC positions covering the screen (6 vec2s).
   static final gpu.DeviceBuffer _quadBuffer = gpu.gpuContext
@@ -108,6 +110,18 @@ class BloomPass extends RenderGraphPass {
       );
     }
 
+    // Lens flares generate from a low (well blurred) mip and add into the
+    // quarter-resolution level, so the remaining upsample stages blur and
+    // composite them like any other glow.
+    if (_settings.lensFlare.enabled && mips.length > 2) {
+      _drawLensFlare(
+        context,
+        source: mips[2],
+        target: mips[1],
+        targetSize: sizes[1],
+      );
+    }
+
     // Upsample back up, adding each level into the next larger one.
     for (var i = mips.length - 2; i >= 0; i--) {
       _drawFilter(
@@ -121,6 +135,56 @@ class BloomPass extends RenderGraphPass {
     }
 
     context.blackboard.set(kBloomTextureBlackboardKey, mips[0]);
+  }
+
+  void _drawLensFlare(
+    RenderGraphContext context, {
+    required gpu.Texture source,
+    required gpu.Texture target,
+    required ui.Size targetSize,
+  }) {
+    final flare = _settings.lensFlare;
+    final commandBuffer = gpu.gpuContext.createCommandBuffer();
+    final renderPass = commandBuffer.createRenderPass(
+      gpu.RenderTarget.singleColor(
+        gpu.ColorAttachment(texture: target, loadAction: gpu.LoadAction.load),
+      ),
+    );
+    renderPass.bindPipeline(resolvePipeline(_vertexShader, _lensFlareShader));
+    renderPass.setColorBlendEnable(true);
+    renderPass.setColorBlendEquation(
+      gpu.ColorBlendEquation(
+        colorBlendOperation: gpu.BlendOperation.add,
+        sourceColorBlendFactor: gpu.BlendFactor.one,
+        destinationColorBlendFactor: gpu.BlendFactor.one,
+        alphaBlendOperation: gpu.BlendOperation.add,
+        sourceAlphaBlendFactor: gpu.BlendFactor.one,
+        destinationAlphaBlendFactor: gpu.BlendFactor.one,
+      ),
+    );
+    bindVertexBufferCompat(renderPass, _quadView, 6);
+
+    final info = Float32List(8)
+      ..[0] = flare.intensity
+      ..[1] = flare.ghostCount.clamp(0, 8).toDouble()
+      ..[2] = flare.ghostSpacing
+      ..[3] = flare.chromaticAberration
+      ..[4] = flare.haloRadius
+      ..[5] = flare.haloIntensity
+      ..[6] = targetSize.height == 0
+          ? 1.0
+          : targetSize.width / targetSize.height;
+    renderPass.bindUniform(
+      _lensFlareShader.getUniformSlot('LensFlareInfo'),
+      context.transientsBuffer.emplace(ByteData.sublistView(info)),
+    );
+    renderPass.bindTexture(
+      _lensFlareShader.getUniformSlot('source'),
+      source,
+      sampler: _linearClamp,
+    );
+    drawCompat(renderPass, 6);
+    rendererSubmissions.submit(commandBuffer);
   }
 
   void _drawThreshold(
