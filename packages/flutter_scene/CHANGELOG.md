@@ -1,5 +1,11 @@
 ## 0.21.0
 
+* Parallax-corrected reflection probes via `ReflectionProbeComponent`, capturing the scene into a local environment whose reflections track the probe's box.
+* `Scene.captureEnvironment` renders the scene's lighting at a point into a new `EnvironmentMap`.
+* SMAA anti-aliasing via `AntiAliasingMode.smaa`, cleaner edges than FXAA with far less texture blurring.
+* Lens flares via `BloomSettings.lensFlare`, ghost chains and a halo with chromatic dispersion off the bloom pyramid.
+* Clearcoat now responds to rect area lights.
+* Screen-space indirect light reprojects its radiance history, so the bounce stays put under camera motion.
 * Screen-space contact shadows for the sun via `DirectionalLight.contactShadows`, grounding small contacts that shadow-map resolution and bias miss.
 * Screen-space indirect light via `AmbientOcclusionSettings.indirectLight`, crediting one bounce of scene radiance to newly visible sectors of the occlusion bitmask.
 * Rect area lights via `RectAreaLight` and `RectAreaLightComponent`, shaded with linearly transformed cosines so panel highlights stretch and fall off physically.
