@@ -73,3 +73,8 @@ flutter:
     # magnitude/Fresnel fit). See lib/src/material/dfg_lut.dart for the data's
     # provenance and license.
     - assets/ltc.bin
+    # The SMAA precomputed area (160x560 RG8) and search (64x16 R8) textures
+    # from the reference implementation. See lib/src/render/smaa_pass.dart
+    # for the data's provenance and license.
+    - assets/smaa_area.bin
+    - assets/smaa_search.bin
