@@ -55,6 +55,7 @@ export 'src/geometry/primitives.dart'
         WedgeGeometry;
 export 'src/geometry/polyline_geometry.dart'
     show DashPattern, PolylineCap, PolylineGeometry, PolylineWidthMode;
+export 'src/geometry/static_instance_geometry.dart' show StaticInstanceGeometry;
 export 'src/geometry/swept_geometry.dart'
     show ExtrudeGeometry, RibbonAlignment, RibbonGeometry, TubeGeometry;
 

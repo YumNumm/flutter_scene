@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:vector_math/vector_math.dart' as vm;
 
 import 'package:flutter_scene/src/geometry/geometry.dart';
@@ -7,8 +8,73 @@ import 'package:flutter_scene/src/geometry/vertex_layout.dart';
 import 'package:flutter_scene/src/gpu/gpu.dart' as gpu;
 import 'package:flutter_scene/src/render/frame_transients.dart';
 
-/// Geometry for large, unchanging instance batches: instance data is
-/// uploaded once and drawn from a retained GPU buffer, never re-packed.
+/// Geometry for a large batch of STATIC instances — instance data that is
+/// set once and never changes frame to frame (e.g. map-tile markers,
+/// scattered foliage, anything laid out ahead of time rather than simulated).
+///
+/// `InstancedMesh` and `BillboardGeometry` re-pack their instance data into
+/// a per-frame transient arena (see [TransientWriter]) on every [bind],
+/// because they're built for instances that *do* change (moving particles,
+/// live transforms). For a batch that never changes, paying that per-frame
+/// pack-and-upload cost is pure waste — at instance counts in the millions
+/// it's also a real frame-time cost, not just a rounding error. This type
+/// skips the transient arena entirely: the vertex, index, and instance data
+/// passed to the constructor are uploaded into their own retained GPU
+/// buffers exactly once, on the first [bind], and every later [bind] just
+/// re-binds those buffers.
+///
+/// After that first upload, the constructor's [Float32List] / [Uint16List]
+/// arguments are dropped — this class never holds both a CPU and a GPU copy
+/// of the (potentially huge) instance data at once.
+///
+/// ```dart
+/// final geometry = StaticInstanceGeometry(
+///   vertices: tileVertices,
+///   instanceData: tileInstanceData, // one entry per marker, laid out once
+///   instanceCount: markerCount,
+///   layout: tileLayout, // per-vertex buffer at slot 0, instance buffer after
+/// );
+/// // geometry.bind() uploads once on first use; later frames just re-bind.
+/// ```
+///
+/// ### Retirement is not deterministic GPU freeing
+///
+/// Call [retire] when a batch is no longer needed to drop this object's
+/// references to its instance buffer and make every later [bind] fail
+/// closed with a [StateError] instead of silently drawing stale or freed
+/// data. But [retire] does **not** deterministically free the underlying GPU
+/// memory: the buffer is a `gpu.DeviceBuffer`, which extends
+/// `NativeFieldWrapperClass1` and exposes no `dispose()` / `destroy()` —
+/// there is no API to ask flutter_gpu to release it on demand. [retire]
+/// drops the Dart-side reference; the native allocation is reclaimed
+/// whenever the garbage collector gets to it, not at the moment [retire]
+/// returns. Treat [retire] as "stop drawing this, and let go of the
+/// reference", not as "the VRAM is free now".
+///
+/// [retire] also cannot reach into the base [Geometry]'s own vertex/index
+/// buffer views — those fields are private to `geometry.dart` and this
+/// class has no API to clear them, so they stay referenced until this whole
+/// object is collected. That's an acceptable gap for the use case this type
+/// exists for: the instance buffer — the one [retire] does release a
+/// reference to — is the large allocation (millions of instances), while the
+/// per-vertex/index buffers are the small, shared geometry (a handful of
+/// vertices for one marker shape).
+///
+/// ### Caller contract: buffer ordering in [layout]
+///
+/// A [VertexBufferDescriptor]'s position in [VertexLayoutDescriptor.buffers]
+/// *is* its binding slot (see [VertexBufferDescriptor]'s own doc). This
+/// class always binds its single per-vertex stream at slot 0 and its
+/// instance buffer at the trailing slot, so the [layout] passed to the
+/// constructor must list the per-vertex buffer first and the instance-rate
+/// buffer after it. The constructor does not — and cannot — check this
+/// ordering: it only checks that *some* buffer in [layout] is instance-rate.
+/// A [layout] with the two buffers swapped still constructs successfully,
+/// then produces a wrong [Geometry.vertexCount] (computed from the wrong
+/// buffer's stride) and a pipeline that reads vertex attributes from the
+/// instance buffer and vice versa. Get the order right at the call site;
+/// nothing downstream will catch it for you.
+/// {@category Geometry}
 final class StaticInstanceGeometry extends Geometry {
   /// Creates a batch of [instanceCount] static instances, validating the
   /// arguments but touching no GPU resource — upload happens on the first
@@ -82,6 +148,22 @@ final class StaticInstanceGeometry extends Geometry {
     _indices = null;
     _instanceData = null;
     _instanceBuffer = null;
+  }
+
+  /// Throws a [StateError] if [retire] has been called.
+  ///
+  /// [bind] calls this as its first statement so a retired geometry fails
+  /// closed before touching a [gpu.RenderPass] or uploading anything. Pulled
+  /// out so its throw/no-throw contract can be tested without constructing
+  /// a real [gpu.RenderPass] — see `static_instance_geometry_test.dart`.
+  @visibleForTesting
+  void checkNotRetired() {
+    if (_retired) {
+      throw StateError(
+        'StaticInstanceGeometry.bind called after retire(). Retired '
+        'geometry cannot be drawn.',
+      );
+    }
   }
 
   @override
@@ -162,12 +244,7 @@ final class StaticInstanceGeometry extends Geometry {
     vm.Vector3 cameraPosition, {
     gpu.Shader? shaderOverride,
   }) {
-    if (_retired) {
-      throw StateError(
-        'StaticInstanceGeometry.bind called after retire(). Retired '
-        'geometry cannot be drawn.',
-      );
-    }
+    checkNotRetired();
     if (!_uploaded) {
       _upload();
     }

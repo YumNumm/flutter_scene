@@ -5,8 +5,6 @@
 import 'dart:typed_data';
 
 import 'package:flutter_scene/scene.dart';
-// ignore: implementation_imports
-import 'package:flutter_scene/src/geometry/static_instance_geometry.dart';
 import 'package:flutter_scene/src/gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vector_math/vector_math.dart';
@@ -187,5 +185,19 @@ void main() {
         throwsStateError,
       );
     }, skip: _gpuAvailable() ? false : 'Requires a GPU device.');
+
+    // Runs everywhere, no GPU device required: pins checkNotRetired's own
+    // throw/no-throw contract, which bind() leans on as its first statement
+    // (see the doc on checkNotRetired). Breaking that contract fails this
+    // test; it can't observe whether bind() still calls it — gpu.RenderPass
+    // can't be constructed headless, so that wiring is only covered by the
+    // GPU-gated test above.
+    test('checkNotRetired throws only after retire()', () {
+      final geometry = _geometry();
+      expect(geometry.checkNotRetired, returnsNormally);
+
+      geometry.retire();
+      expect(geometry.checkNotRetired, throwsStateError);
+    });
   });
 }
