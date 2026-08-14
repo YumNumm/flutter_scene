@@ -186,12 +186,21 @@ void main() {
       );
     }, skip: _gpuAvailable() ? false : 'Requires a GPU device.');
 
+    // Mirrors the bind() test above: some render passes reach draw() via a
+    // path that never calls bind() (scene_encoder's bindGeometryBuffers /
+    // bindPositionStream fast paths), so draw() needs its own fail-closed
+    // check, not just a shared assumption that bind() always runs first.
+    test('draw() after retire() throws StateError, not an empty draw', () {
+      final geometry = _geometry()..retire();
+      expect(() => geometry.draw(_minimalRenderPass()), throwsStateError);
+    }, skip: _gpuAvailable() ? false : 'Requires a GPU device.');
+
     // Runs everywhere, no GPU device required: pins checkNotRetired's own
-    // throw/no-throw contract, which bind() leans on as its first statement
-    // (see the doc on checkNotRetired). Breaking that contract fails this
-    // test; it can't observe whether bind() still calls it — gpu.RenderPass
-    // can't be constructed headless, so that wiring is only covered by the
-    // GPU-gated test above.
+    // throw/no-throw contract, which both bind() and draw() lean on as their
+    // first statement (see the doc on checkNotRetired). Breaking that
+    // contract fails this test; it can't observe whether bind() or draw()
+    // still call it — gpu.RenderPass can't be constructed headless, so that
+    // wiring is only covered by the two GPU-gated tests above.
     test('checkNotRetired throws only after retire()', () {
       final geometry = _geometry();
       expect(geometry.checkNotRetired, returnsNormally);

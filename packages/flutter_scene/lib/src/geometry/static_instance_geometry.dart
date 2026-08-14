@@ -40,9 +40,9 @@ import 'package:flutter_scene/src/render/frame_transients.dart';
 /// ### Retirement is not deterministic GPU freeing
 ///
 /// Call [retire] when a batch is no longer needed to drop this object's
-/// references to its instance buffer and make every later [bind] fail
-/// closed with a [StateError] instead of silently drawing stale or freed
-/// data. But [retire] does **not** deterministically free the underlying GPU
+/// references to its instance buffer and make every later [bind] or [draw]
+/// fail closed with a [StateError] instead of silently drawing stale or
+/// freed data. But [retire] does **not** deterministically free the underlying GPU
 /// memory: the buffer is a `gpu.DeviceBuffer`, which extends
 /// `NativeFieldWrapperClass1` and exposes no `dispose()` / `destroy()` —
 /// there is no API to ask flutter_gpu to release it on demand. [retire]
@@ -152,16 +152,19 @@ final class StaticInstanceGeometry extends Geometry {
 
   /// Throws a [StateError] if [retire] has been called.
   ///
-  /// [bind] calls this as its first statement so a retired geometry fails
-  /// closed before touching a [gpu.RenderPass] or uploading anything. Pulled
-  /// out so its throw/no-throw contract can be tested without constructing
-  /// a real [gpu.RenderPass] — see `static_instance_geometry_test.dart`.
+  /// Both [bind] and [draw] call this as their first statement so a retired
+  /// geometry fails closed instead of drawing whatever is left of its
+  /// buffers — including the encoder's `bindGeometryBuffers`/
+  /// `bindPositionStream` fast paths, which some render passes take instead
+  /// of calling [bind]. Pulled out so its throw/no-throw contract can be
+  /// tested without constructing a real [gpu.RenderPass] — see
+  /// `static_instance_geometry_test.dart`.
   @visibleForTesting
   void checkNotRetired() {
     if (_retired) {
       throw StateError(
-        'StaticInstanceGeometry.bind called after retire(). Retired '
-        'geometry cannot be drawn.',
+        'StaticInstanceGeometry used after retire(). Retired geometry '
+        'cannot be bound or drawn.',
       );
     }
   }
@@ -257,6 +260,7 @@ final class StaticInstanceGeometry extends Geometry {
 
   @override
   void draw(gpu.RenderPass pass, {int instanceCount = 1}) {
+    checkNotRetired();
     super.draw(pass, instanceCount: this.instanceCount);
   }
 }
