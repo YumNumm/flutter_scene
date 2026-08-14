@@ -81,6 +81,12 @@ const VertexLayoutDescriptor _noInstanceLayout = VertexLayoutDescriptor(
   ],
 );
 
+// Both buffers of _validLayout, but swapped: the instance-rate buffer is
+// first. This is exactly the ordering mistake the class doc warns about.
+const VertexLayoutDescriptor _reversedLayout = VertexLayoutDescriptor(
+  buffers: [_instanceBuffer, _vertexBuffer],
+);
+
 Float32List _triangleVertices() =>
     Float32List.fromList([0, 0, 0, 1, 0, 0, 0, 1, 0]);
 
@@ -123,6 +129,14 @@ void main() {
       );
     });
 
+    test('vertices.lengthInBytes must be a multiple of the vertex stride', () {
+      expect(
+        // 16 bytes; the vertex buffer's stride is 12.
+        () => _geometry(vertices: Float32List(4)),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
     test('instanceData.length must be divisible by instanceCount', () {
       expect(
         () => StaticInstanceGeometry(
@@ -136,9 +150,39 @@ void main() {
       );
     });
 
+    test('instanceData size must exactly match instanceCount * buffer stride, '
+        'not merely be a multiple of instanceCount', () {
+      expect(
+        // 2 floats total (8 bytes) for instanceCount: 2 — old modulo
+        // check (2 % 2 == 0) would have let this through; the buffer's
+        // real stride is 16 bytes/instance, so 32 bytes are required.
+        () => StaticInstanceGeometry(
+          vertices: _triangleVertices(),
+          instanceData: Float32List(2),
+          instanceCount: 2,
+          layout: _validLayout,
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
     test('layout must contain an instance-rate buffer descriptor', () {
       expect(
         () => _geometry(layout: _noInstanceLayout),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('layout.buffers.first must be vertex-rate, not reversed', () {
+      expect(
+        () => _geometry(
+          layout: _reversedLayout,
+          // 48 bytes: a multiple of both the real vertex stride (12) and
+          // the (wrong, post-reversal) 16-byte stride, so this can only
+          // fail via the ordering check, not incidentally via the vertex
+          // byte-length check picking up buffers.first's stride.
+          vertices: Float32List(12),
+        ),
         throwsA(isA<ArgumentError>()),
       );
     });
@@ -171,6 +215,39 @@ void main() {
       geometry.retire();
       expect(geometry.isRetired, isTrue);
     });
+
+    test('retire() clears the base Geometry vertex streams', () {
+      // vertexStreamCount is already 0 pre-upload (no gpu.BufferView can be
+      // constructed headless, so this can't be exercised post-upload here —
+      // see the GPU-gated tests below for the actual bypass-path coverage).
+      // This pins that retire() calling setVertexStreams(const [], 0) does
+      // not throw and leaves the count at the expected value.
+      final geometry = _geometry();
+      expect(geometry.vertexStreamCount, 0);
+      geometry.retire();
+      expect(geometry.vertexStreamCount, 0);
+    });
+
+    // The encoder's bindGeometryBuffers/bindPositionStream fast paths bypass
+    // bind() (and so never reach checkNotRetired) whenever they're taken
+    // directly — see the class doc. retire() closes that hole by clearing
+    // the base Geometry's vertex streams, so Geometry's own
+    // _requireVertices() check fails these closed too.
+    test('bindGeometryBuffers after retire() throws, not an empty draw', () {
+      final geometry = _geometry()..retire();
+      expect(
+        () => geometry.bindGeometryBuffers(_minimalRenderPass()),
+        throwsException,
+      );
+    }, skip: _gpuAvailable() ? false : 'Requires a GPU device.');
+
+    test('bindPositionStream after retire() throws, not an empty draw', () {
+      final geometry = _geometry()..retire();
+      expect(
+        () => geometry.bindPositionStream(_minimalRenderPass()),
+        throwsException,
+      );
+    }, skip: _gpuAvailable() ? false : 'Requires a GPU device.');
 
     test('bind() after retire() throws StateError, not an empty draw', () {
       final geometry = _geometry()..retire();
