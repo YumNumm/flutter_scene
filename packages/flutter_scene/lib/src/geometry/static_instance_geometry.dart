@@ -319,6 +319,12 @@ final class StaticInstanceGeometry extends Geometry {
     _instanceData = null;
   }
 
+  /// [depthBias] is accepted to satisfy [Geometry.bind] but has no effect here.
+  /// The other geometries forward it into `bindUnskinnedFrameInfo`; this one
+  /// binds no FrameInfo at all — the shader's uniforms come from the
+  /// [ShaderMaterial] vertex block the caller owns (see the class doc). Apply
+  /// depth bias there instead. Setting `Material.depthBias` alone does nothing
+  /// for this geometry.
   @override
   void bind(
     gpu.RenderPass pass,
@@ -327,6 +333,7 @@ final class StaticInstanceGeometry extends Geometry {
     vm.Matrix4 cameraTransform,
     vm.Vector3 cameraPosition, {
     gpu.Shader? shaderOverride,
+    double depthBias = 0.0,
   }) {
     checkNotRetired();
     if (!_uploaded) {
